@@ -1,22 +1,64 @@
 /**
- * 京东 App 页面底部商品推荐清理
- * 覆盖：消息 / 购物车 / 我的 / 待收货·待付款 / 物流
- *
- * 抓包结论（2026-09）：
- * - 各页底部推荐均走 recommend_jdur + functionId=uniformRecommend[数字]
- *   例：物流 OrderTrailFollow_Slide / source=4；模板内 pageSource 含
- *   FROM_SHOPPINGCAR / FROM_MYJD / FROM_MESSAGE_CENTER_* 等
- * - basicConfig.TNUnionFetch.recommend 控制推荐模块拉取
+ * 京东去推荐 - 响应体处理
  * 兼容 Surge / Loon / Quantumult X
  */
-
 const url = $request.url || "";
-if (!$response || !$response.body) $done({});
+const reqBody = typeof $request.body === "string" ? $request.body : "";
 
-let body = $response.body;
+function findFunctionId() {
+  let m = url.match(/functionId=([^&]+)/i);
+  if (m) return decodeURIComponent(m[1]);
+  m = reqBody.match(/functionId=([^&]+)/i);
+  if (m) return decodeURIComponent(m[1]);
+  // 京东偶发把整段 form 再 base64 一层
+  try {
+    const raw = reqBody.replace(/\s/g, "");
+    if (raw.length > 32 && /^[A-Za-z0-9+/=]+$/.test(raw.slice(0, 80))) {
+      const decoded = typeof Buffer !== "undefined"
+        ? Buffer.from(raw, "base64").toString("utf8")
+        : (typeof $base64 !== "undefined" ? $base64.decode(raw) : null);
+      // Loon/QX: 用手动 atob 风格
+    }
+  } catch (e) {}
+  try {
+    const s = reqBody;
+    if (s.indexOf("YX") === 0 || s.indexOf("dX") === 0) {
+      const bin = (function (b64) {
+        // Loon 提供 $base64；否则跳过
+        if (typeof $base64 !== "undefined" && $base64.decode) {
+          const d = $base64.decode(b64);
+          return typeof d === "string" ? d : "";
+        }
+        return "";
+      })(s);
+      if (bin) {
+        let t = bin;
+        try {
+          t = decodeURIComponent(bin.replace(/\+/g, " "));
+        } catch (e) {}
+        m = t.match(/functionId=([^&]+)/i);
+        if (m) return decodeURIComponent(m[1]);
+      }
+    }
+  } catch (e) {}
+  return "";
+}
+
+const fid = findFunctionId();
+
+if (!$response || $response.body == null || $response.body === "") {
+  // 对推荐接口即使无 body 也回空壳
+  if (/^uniformRecommend\d*$/i.test(fid)) {
+    $done({
+      body: JSON.stringify({ code: "0", wareInfoList: [], hasNextPage: false, list: [], feeds: [] }),
+    });
+  }
+  $done({});
+}
+
 let obj;
 try {
-  obj = JSON.parse(body);
+  obj = JSON.parse($response.body);
 } catch (e) {
   $done({});
 }
@@ -31,7 +73,6 @@ const FLOOR_IDS = new Set([
   "recommend",
   "feeds",
   "feedFloor",
-  "feed_floor",
   "rankFloor",
   "rankListFloor",
   "ranklist",
@@ -65,56 +106,28 @@ const FLOOR_IDS = new Set([
 
 function textOf(v) {
   if (v == null) return "";
-  if (typeof v === "string") return v;
-  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
   return "";
-}
-
-function collectText(node, depth = 0) {
-  if (depth > 4 || node == null) return "";
-  if (typeof node !== "object") return textOf(node);
-  const keys = [
-    "title",
-    "name",
-    "floorName",
-    "floorTitle",
-    "showTitle",
-    "text",
-    "label",
-    "mId",
-    "mid",
-    "type",
-    "tpl",
-    "identityId",
-    "floorId",
-    "pageSource",
-    "eventId",
-  ];
-  let s = "";
-  for (const k of keys) {
-    if (k in node) s += " " + textOf(node[k]);
-  }
-  return s;
 }
 
 function isRecommendFloor(floor) {
   if (!floor || typeof floor !== "object") return false;
   const id = textOf(floor.mId || floor.mid || floor.type || floor.floorId || floor.identityId);
   if (id && FLOOR_IDS.has(id)) return true;
-  if (/recommend|feed|rank|maylike|guess|fashion|lookaround|goodstuff|jdur/i.test(id)) {
-    return true;
-  }
-  return TITLE_RE.test(collectText(floor));
+  if (/recommend|feed|rank|maylike|guess|fashion|lookaround|goodstuff|jdur/i.test(id)) return true;
+  const blob = ["title", "name", "floorName", "floorTitle", "showTitle", "text", "label"]
+    .map((k) => textOf(floor[k]))
+    .join(" ");
+  return TITLE_RE.test(blob + " " + id);
 }
 
-function filterFloors(floors) {
-  if (!Array.isArray(floors)) return floors;
-  return floors.filter((f) => !isRecommendFloor(f));
+function filterFloors(arr) {
+  return Array.isArray(arr) ? arr.filter((f) => !isRecommendFloor(f)) : arr;
 }
 
-function emptyRecommendPayload(o) {
-  if (!o || typeof o !== "object") return o;
-  const listKeys = [
+function emptyLists(o) {
+  if (!o || typeof o !== "object") return;
+  [
     "wareInfoList",
     "wareList",
     "itemList",
@@ -132,228 +145,159 @@ function emptyRecommendPayload(o) {
     "recommendList",
     "tabList",
     "tabs",
-  ];
-  for (const k of listKeys) {
+  ].forEach((k) => {
     if (Array.isArray(o[k])) o[k] = [];
-  }
+  });
   if (o.hasMore != null) o.hasMore = false;
   if (o.hasNextPage != null) o.hasNextPage = false;
   if (o.isEnd != null) o.isEnd = true;
   if (o.total != null) o.total = 0;
-  return o;
 }
 
-function killUniformRecommend(root) {
-  // 保留业务可解析的空壳，避免页面转圈
-  if (!root || typeof root !== "object") {
-    return { code: "0", wareInfoList: [], hasNextPage: false };
-  }
-  emptyRecommendPayload(root);
-  if (root.data && typeof root.data === "object") emptyRecommendPayload(root.data);
-  if (root.result && typeof root.result === "object") emptyRecommendPayload(root.result);
-  if (!("code" in root) && !("wareInfoList" in root) && !root.data && !root.result) {
+function killRecommend(root) {
+  emptyLists(root);
+  if (root.data) emptyLists(root.data);
+  if (root.result) emptyLists(root.result);
+  if (!root.code && !root.data && !root.result) {
     root.code = "0";
-    root.wareInfoList = [];
-    root.hasNextPage = false;
   }
-  if (Array.isArray(root.wareInfoList) === false && root.wareInfoList == null && !root.data && !root.result) {
-    root.wareInfoList = [];
-  }
-  return root;
+  if (!Array.isArray(root.wareInfoList)) root.wareInfoList = [];
+  root.hasNextPage = false;
 }
 
-function stripPersonPage(root) {
-  if (!root || typeof root !== "object") return;
-  if (Array.isArray(root.floors)) root.floors = filterFloors(root.floors);
-  if (root.others && Array.isArray(root.others.floors)) {
-    root.others.floors = filterFloors(root.others.floors);
-  }
-  const all = [].concat(root.floors || [], (root.others && root.others.floors) || []);
-  const base = all.find((f) => f && f.mId === "basefloorinfo");
-  if (base && base.data) {
-    delete base.data.commonPopup;
-    delete base.data.commonPopup_dynamic;
-    delete base.data.floatLayer;
-    if (Array.isArray(base.data.commonTips)) base.data.commonTips = [];
-    if (Array.isArray(base.data.commonWindows)) base.data.commonWindows = [];
-  }
-  for (const floor of all) {
-    if (floor?.mId === "userinfo" && floor.data?.newPlusBlackCard) {
-      delete floor.data.newPlusBlackCard;
-    }
-    if (floor?.mId === "orderIdFloor" && floor.data?.commentRemindInfo?.infos) {
-      floor.data.commentRemindInfo.infos = [];
-    }
-  }
-}
-
-function stripOrderPage(root) {
-  if (!root || typeof root !== "object") return;
-  if (Array.isArray(root.floors)) {
-    root.floors = root.floors.filter((floor) => {
-      if (isRecommendFloor(floor)) return false;
-      if (["bannerFloor", "bpDynamicFloor", "plusFloor"].includes(floor?.mId)) return false;
-      return true;
-    });
-  }
-}
-
-function stripLogistics(root) {
-  if (!root || typeof root !== "object") return;
-  if (root.bannerInfo) delete root.bannerInfo;
-  if (Array.isArray(root.floors)) {
-    root.floors = root.floors.filter(
-      (i) => !["banner", "jdDeliveryBanner"].includes(i?.mId) && !isRecommendFloor(i)
-    );
-  }
-  emptyRecommendPayload(root);
-  if (root.data) emptyRecommendPayload(root.data);
-  if (root.result) emptyRecommendPayload(root.result);
-}
-
-function stripCart(root) {
-  if (!root || typeof root !== "object") return;
-  const targets = [root, root.data, root.result, root.cartData, root.cartInfo].filter(Boolean);
-  for (const t of targets) {
-    if (Array.isArray(t.floors)) t.floors = filterFloors(t.floors);
-    if (Array.isArray(t.floorList)) t.floorList = filterFloors(t.floorList);
-    emptyRecommendPayload(t);
-    if (t.recommendInfo) t.recommendInfo = {};
-    if (t.rankInfo) t.rankInfo = {};
-    if (t.lookInfo) t.lookInfo = {};
-    if (t.promotion && Array.isArray(t.promotion.floors)) {
-      t.promotion.floors = filterFloors(t.promotion.floors);
-    }
-  }
-}
-
-function stripMessage(root) {
-  if (!root || typeof root !== "object") return;
-  const targets = [root, root.data, root.result].filter(Boolean);
-  for (const t of targets) {
-    if (Array.isArray(t.floors)) t.floors = filterFloors(t.floors);
-    if (Array.isArray(t.floorList)) t.floorList = filterFloors(t.floorList);
-    emptyRecommendPayload(t);
-    if (t.recommendArea) t.recommendArea = null;
-    if (t.bottomRecommend) t.bottomRecommend = null;
-  }
-}
-
-function deepStripByTitle(node, depth = 0) {
+function deepStrip(node, depth) {
   if (depth > 8 || !node || typeof node !== "object") return;
   if (Array.isArray(node)) {
     for (let i = node.length - 1; i >= 0; i--) {
-      const item = node[i];
-      if (item && typeof item === "object" && isRecommendFloor(item)) {
-        node.splice(i, 1);
-      } else {
-        deepStripByTitle(item, depth + 1);
-      }
+      if (node[i] && typeof node[i] === "object" && isRecommendFloor(node[i])) node.splice(i, 1);
+      else deepStrip(node[i], depth + 1);
     }
     return;
   }
-  for (const k of Object.keys(node)) {
+  Object.keys(node).forEach((k) => {
     const v = node[k];
     if (Array.isArray(v) && /floor|feed|recommend|rank|ware|sku|item|card|list|tab/i.test(k)) {
       node[k] = v.filter((x) => !(x && typeof x === "object" && isRecommendFloor(x)));
-      deepStripByTitle(node[k], depth + 1);
-    } else if (v && typeof v === "object") {
-      deepStripByTitle(v, depth + 1);
-    }
-  }
+      deepStrip(node[k], depth + 1);
+    } else if (v && typeof v === "object") deepStrip(v, depth + 1);
+  });
 }
 
 function patchBasicConfig(root) {
   const data = root.data || root;
   if (!data || typeof data !== "object") return;
-  // 关闭推荐模块网络拉取（消息/购物车/我的/物流底部共用 recommend_jdur）
-  if (data.TNUnionFetch?.recommend) {
-    data.TNUnionFetch.recommend.enable = 0;
-  }
-  // 从 serviceUnit 白名单里拿掉推荐 functionId，降低旁路调用
-  const scrubList = (arr) => {
-    if (!Array.isArray(arr)) return arr;
-    return arr.filter((x) => !/^uniformRecommend\d*$/i.test(String(x)));
+  if (data.TNUnionFetch && data.TNUnionFetch.recommend) data.TNUnionFetch.recommend.enable = 0;
+  const walk = (n, d) => {
+    if (d > 6 || !n || typeof n !== "object") return;
+    if (Array.isArray(n)) return n.forEach((x) => walk(x, d + 1));
+    Object.keys(n).forEach((k) => {
+      if (/serviceUnitFunctionIds/i.test(k) && Array.isArray(n[k])) {
+        n[k] = n[k].filter((x) => !/^uniformRecommend\d*$/i.test(String(x)));
+      } else walk(n[k], d + 1);
+    });
   };
-  const walk = (node, depth = 0) => {
-    if (depth > 6 || !node || typeof node !== "object") return;
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item, depth + 1);
-      return;
-    }
-    for (const [k, v] of Object.entries(node)) {
-      if (/serviceUnitFunctionIds/i.test(k) && Array.isArray(v)) {
-        node[k] = scrubList(v);
-      } else if (v && typeof v === "object") {
-        walk(v, depth + 1);
-      }
-    }
-  };
-  walk(data);
+  walk(data, 0);
 }
 
-// —— 按 functionId / URL 分流 ——
-if (/functionId=uniformRecommend\d*/i.test(url) || /\/uniformRecommend\d*/i.test(url)) {
-  obj = killUniformRecommend(obj);
-} else if (/functionId=basicConfig/i.test(url)) {
+function stripPerson(root) {
+  if (Array.isArray(root.floors)) root.floors = filterFloors(root.floors);
+  if (root.others && Array.isArray(root.others.floors)) root.others.floors = filterFloors(root.others.floors);
+  deepStrip(root, 0);
+}
+
+function stripOrder(root) {
+  if (Array.isArray(root.floors)) {
+    root.floors = root.floors.filter(
+      (f) => !isRecommendFloor(f) && !["bannerFloor", "bpDynamicFloor", "plusFloor"].includes(f && f.mId)
+    );
+  }
+  deepStrip(root, 0);
+}
+
+function stripLogistics(root) {
+  if (root.bannerInfo) delete root.bannerInfo;
+  if (Array.isArray(root.floors)) {
+    root.floors = root.floors.filter(
+      (i) => !["banner", "jdDeliveryBanner"].includes(i && i.mId) && !isRecommendFloor(i)
+    );
+  }
+  emptyLists(root);
+  deepStrip(root, 0);
+}
+
+function stripCart(root) {
+  [root, root.data, root.result, root.cartData, root.cartInfo].filter(Boolean).forEach((t) => {
+    if (Array.isArray(t.floors)) t.floors = filterFloors(t.floors);
+    if (Array.isArray(t.floorList)) t.floorList = filterFloors(t.floorList);
+    emptyLists(t);
+    if (t.recommendInfo) t.recommendInfo = {};
+    if (t.rankInfo) t.rankInfo = {};
+    if (t.lookInfo) t.lookInfo = {};
+  });
+  deepStrip(root, 0);
+}
+
+function stripMessage(root) {
+  [root, root.data, root.result].filter(Boolean).forEach((t) => {
+    if (Array.isArray(t.floors)) t.floors = filterFloors(t.floors);
+    if (Array.isArray(t.floorList)) t.floorList = filterFloors(t.floorList);
+    emptyLists(t);
+    if (t.recommendArea) t.recommendArea = null;
+    if (t.bottomRecommend) t.bottomRecommend = null;
+  });
+  deepStrip(root, 0);
+}
+
+// 分流
+if (/^uniformRecommend\d*$/i.test(fid) || /functionId=uniformRecommend\d*/i.test(url)) {
+  killRecommend(obj);
+} else if (/^basicConfig$/i.test(fid) || /functionId=basicConfig/i.test(url)) {
   patchBasicConfig(obj);
-} else if (/functionId=personinfoBusiness/i.test(url)) {
-  stripPersonPage(obj);
-  deepStripByTitle(obj);
-} else if (/functionId=myOrderInfo/i.test(url)) {
-  stripOrderPage(obj);
-  deepStripByTitle(obj);
-} else if (/functionId=(orderTrackBusiness|deliverLayer)/i.test(url)) {
+} else if (/personinfoBusiness/i.test(fid) || /personinfoBusiness/i.test(url)) {
+  stripPerson(obj);
+} else if (/myOrderInfo/i.test(fid) || /myOrderInfo/i.test(url)) {
+  stripOrder(obj);
+} else if (/orderTrackBusiness|deliverLayer/i.test(fid) || /orderTrackBusiness|deliverLayer/i.test(url)) {
   stripLogistics(obj);
-  deepStripByTitle(obj);
 } else if (
-  /functionId=(carts|cartChange|cartRefresh|newCartPage|synchronizedCarts|gwCart|cartB|getCarts|cart)\b/i.test(
+  /^(carts|cartChange|cartRefresh|newCartPage|synchronizedCarts|gwCart|cartB|getCarts|cart)$/i.test(fid) ||
+  /functionId=(carts|cartChange|cartRefresh|newCartPage|synchronizedCarts|gwCart|cartB|getCarts|cart)(&|$)/i.test(
     url
   )
 ) {
   stripCart(obj);
-  deepStripByTitle(obj);
 } else if (
-  /functionId=(msgCenter|messageCenter|getMsgCenter|messageBox|msgbox|messageHome|getMessageHome)/i.test(
-    url
-  )
+  /msgCenter|messageCenter|getMsgCenter|messageBox|msgbox|messageHome|getMessageHome/i.test(fid) ||
+  /msgCenter|messageCenter|getMsgCenter|messageBox|messageHome/i.test(url)
 ) {
   stripMessage(obj);
-  deepStripByTitle(obj);
-} else if (/functionId=welcomeHome/i.test(url)) {
+} else if (/welcomeHome/i.test(fid) || /welcomeHome/i.test(url)) {
   if (Array.isArray(obj.floorList)) {
-    const del = new Set([
-      "bottomXview",
-      "float",
-      "photoCeiling",
-      "recommend",
-      "ruleFloat",
-      "searchIcon",
-      "topRotate",
-      "tabBarAtmosphere",
-    ]);
-    obj.floorList = obj.floorList.filter((i) => !del.has(i?.type) && !isRecommendFloor(i));
+    const del = {
+      bottomXview: 1,
+      float: 1,
+      photoCeiling: 1,
+      recommend: 1,
+      ruleFloat: 1,
+      searchIcon: 1,
+      topRotate: 1,
+      tabBarAtmosphere: 1,
+    };
+    obj.floorList = obj.floorList.filter((i) => !del[i && i.type] && !isRecommendFloor(i));
   }
   if (Array.isArray(obj.webViewFloorList)) obj.webViewFloorList = [];
-} else if (/functionId=start\b/i.test(url)) {
+} else if (/^start$/i.test(fid) || /functionId=start(&|$)/i.test(url)) {
   if (Array.isArray(obj.images)) obj.images = [];
   if (obj.showTimesDaily != null) obj.showTimesDaily = 0;
-} else {
-  if (obj.floors || obj.floorList || obj.others?.floors || obj.data?.floors) {
-    stripPersonPage(obj);
-    stripCart(obj);
-    stripMessage(obj);
-    deepStripByTitle(obj);
-  } else if (
-    obj.wareInfoList ||
-    obj.feeds ||
-    obj.data?.wareInfoList ||
-    obj.result?.wareInfoList
-  ) {
-    emptyRecommendPayload(obj);
-    if (obj.data) emptyRecommendPayload(obj.data);
-    if (obj.result) emptyRecommendPayload(obj.result);
-  }
+} else if (
+  // 仅当能确认是推荐流（含 pageSource / eventId）时才清空，避免误伤其它业务
+  (obj.wareInfoList || (obj.data && obj.data.wareInfoList)) &&
+  (/FROM_(SHOPPINGCAR|MYJD|MESSAGE_CENTER|ORDER)|OrderTrail|GuessYouLike|jdur|recommend/i.test(
+    JSON.stringify(obj).slice(0, 2000)
+  ) ||
+    /recommend|OrderTrail|GuessYouLike|SHOPPINGCAR|MYJD|MESSAGE/i.test(reqBody.slice(0, 2000)))
+) {
+  killRecommend(obj);
 }
 
 $done({ body: JSON.stringify(obj) });

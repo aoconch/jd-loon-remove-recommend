@@ -1,24 +1,25 @@
 #!name=京东去推荐
-#!desc=移除京东消息/购物车/我的/待收货·待付款/物流等页面下方的商品推荐（为你推荐、潮流好货、推荐榜单、快点来看看、你可能还喜欢）。基于 recommend_jdur + uniformRecommend 抓包。
+#!desc=移除消息/购物车/我的/订单/物流页底部商品推荐。不依赖插件开关；Rewrite 直接 reject，脚本用 jsDelivr。
 #!author=aoconch
 #!homepage=https://github.com/aoconch/jd-loon-remove-recommend
 #!icon=https://raw.githubusercontent.com/fmz200/wool_scripts/main/icons/apps/JingDong.png
 #!category=去广告
 #!tag=京东,推荐,去广告
 
-[Argument]
-enable=switch,true,false,tag=总开关,desc=关闭后本插件全部规则不生效
-
 [Rewrite]
-# recommend_jdur 系列模板：消息/购物车/我的/物流底部推荐共用
-^https?:\/\/storage\.jd\.com\/mpaas2-public\/product\/.+\/recommend_jdur reject-200,enable={enable}
-^https?:\/\/storage\.jd\.com\/mpaas2-public\/product\/.+\/recommend_ reject-200,enable={enable}
+# —— 不依赖外部脚本，直接拦截推荐数据流 ——
+^https?:\/\/api\.m\.jd\.com\/client\.action\?functionId=uniformRecommend\d* reject-dict
+^https?:\/\/api\.m\.jd\.com\/client\.action\?[^#]*functionId=uniformRecommend\d* reject-dict
+^https?:\/\/api\.m\.jd\.com\/api\?[^#]*functionId=uniformRecommend\d* reject-dict
+
+# recommend_jdur 模板（本地已缓存时仍需配合清缓存）
+^https?:\/\/storage\.jd\.com\/mpaas2-public\/product\/[^\/]+\/recommend_jdur reject-200
+^https?:\/\/storage\.jd\.com\/mpaas2-public\/product\/[^\/]+\/recommend_ reject-200
 
 [Script]
-# uniformRecommend / uniformRecommend9|47|52|71…：各页推荐商品流
-# basicConfig：关闭 TNUnionFetch.recommend
-# personinfoBusiness / 订单 / 物流 / 购物车 / 消息：楼层级清理
-http-response ^https?:\/\/api\.m\.jd\.com\/(?:client\.action\?|api\?).*(?:functionId=(?:uniformRecommend\d*|basicConfig|personinfoBusiness|myOrderInfo|orderTrackBusiness|deliverLayer|carts|cartChange|cartRefresh|newCartPage|synchronizedCarts|gwCart|cartB|getCarts|cart|msgCenter|messageCenter|getMsgCenter|messageBox|msgbox|messageHome|getMessageHome|welcomeHome|start)\b) script-path=https://raw.githubusercontent.com/aoconch/jd-loon-remove-recommend/main/jd-remove-recommend.js, requires-body=true, timeout=20, tag=京东去推荐, enable={enable}
+# 匹配所有 client.action，在脚本内识别 functionId（含 POST body）
+http-response ^https?:\/\/api\.m\.jd\.com\/client\.action script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/jd-remove-recommend.js, requires-body=true, timeout=10, tag=京东去推荐
+http-response ^https?:\/\/api\.m\.jd\.com\/api\? script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/jd-remove-recommend.js, requires-body=true, timeout=10, tag=京东去推荐-api
 
-[MITM]
+[Mitm]
 hostname = api.m.jd.com, storage.jd.com

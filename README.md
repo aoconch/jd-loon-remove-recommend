@@ -1,33 +1,33 @@
-# 京东去推荐（Loon 插件）
+# 京东去推荐（Loon）
 
-移除京东 App 以下区域的商品推荐：
+移除消息 / 购物车 / 我的 / 待收货·待付款 / 物流页下方商品推荐。
 
-- 消息页下方推荐
-- 购物车下方「推荐榜单」「快点来看看」
-- 我的页下方「为你推荐」「潮流好货」
-- 待收货 / 待付款页下方商品推荐
-- 物流页下方「你可能还喜欢」
+## 安装
 
-## 安装（Loon）
+```text
+https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/jd-remove-recommend.plugin
+```
 
-1. 复制插件地址：
+备用（GitHub raw，国内可能失败）：
 
 ```text
 https://raw.githubusercontent.com/aoconch/jd-loon-remove-recommend/main/jd-remove-recommend.plugin
 ```
 
-2. Loon → 配置 → 插件 → 右上角 `+` → 粘贴上方地址 → 安装  
-3. 确认已开启：**脚本**、**MitM**（证书已信任）  
-4. 强制结束京东后重新打开；若仍有残留，可清一次京东缓存再试
+## 必做（否则会「完全没效果」）
 
-## 说明
+1. Loon → 插件 → 删除旧版「京东去推荐」→ 用上面 **jsDelivr** 地址重新添加  
+2. 确认插件已开启；配置里已开 **脚本**、**MitM**，证书已信任  
+3. MitM 主机名需包含：`api.m.jd.com`、`storage.jd.com`  
+4. **清除京东 App 缓存**（或删掉重装）→ 从多任务划掉京东 → 再打开  
+5. Loon → 工具 → 查看来往请求：打开购物车/消息时，应能看到对 `uniformRecommend` 的 `reject-dict`
 
-抓包确认各页底部推荐共用一套能力：
+## 原理
 
-- 模板：`storage.jd.com/.../recommend_jdur_*`（插件直接拦截）
-- 数据：`functionId=uniformRecommend` / `uniformRecommend9|47|52|71…`（脚本清空商品列表）
-- 开关：`basicConfig` → `TNUnionFetch.recommend.enable=0`
-- 物流页请求示例：`eventId=OrderTrailFollow_Slide`，`source=4`
-- 模板内 pageSource：`FROM_SHOPPINGCAR` / `FROM_MYJD` / `FROM_MESSAGE_CENTER_*` 等
+| 手段 | 作用 |
+|------|------|
+| `reject-dict` 拦截 `uniformRecommend*` | 各页底部推荐商品流（不依赖脚本下载） |
+| 拦截 `recommend_jdur` 模板 | 推荐 UI 模板 |
+| 脚本改 `basicConfig` / 楼层接口 | 关掉 `TNUnionFetch.recommend`，并清理我的/订单等楼层 |
 
-安装后请：**更新插件 → 清京东缓存或重装 → 杀进程再开**。若仍有残留，把该页 MitM 下带 `functionId` 的请求发我即可继续补。
+仓库：https://github.com/aoconch/jd-loon-remove-recommend
