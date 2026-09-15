@@ -1,5 +1,5 @@
 #!name=京东去推荐
-#!desc=Surge：拒 QUIC + 可莉规则 + uniformRecommend + 购物车
+#!desc=Surge：整条 client.action + 拒 QUIC（functionId 常在 body）
 
 [Rule]
 AND, ((DOMAIN, api.m.jd.com), (PROTOCOL, QUIC)), REJECT
@@ -10,7 +10,7 @@ AND, ((DOMAIN-SUFFIX, jd.com), (PROTOCOL, QUIC)), REJECT
 ^https://storage\.jd\.com/mpaas2-public/product/[^/]+/recommend_jdur - reject
 
 [Script]
-京东去推荐 = type=http-response, pattern=^https://api\.m\.jd\.com/(client\.action|api)\?functionId=(deliverLayer|getTabHomeInfo|myOrderInfo|orderTrackBusiness|personinfoBusiness|start|welcomeHome|uniformRecommend\d*|cart\w*|Cart\w*|synCart\w*|shopCart\w*|newCart\w*|getCart\w*), script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/JD_remove_ads.js, requires-body=true, timeout=20
+京东去推荐 = type=http-response, pattern=^https://api\.m\.jd\.com/(client\.action|api), script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/JD_remove_ads.js, requires-body=true, timeout=20
 
 [MITM]
-hostname = %APPEND% api.m.jd.com, storage.jd.com
+hostname = %APPEND% api.m.jd.com, storage.jd.com, *.jd.com

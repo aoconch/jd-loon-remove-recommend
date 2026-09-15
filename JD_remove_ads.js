@@ -1,15 +1,32 @@
 // 京东去广告 / 去推荐
-// 覆盖：消息 / 购物车 / 我的 / 订单 / 物流 / 首页
-// 对齐可莉 functionId，并递归按标题/mId 清理楼层
+// 注意：新版京东常把 functionId 放在 POST body，而不是 URL query
 
-const url = $request.url;
-if (!$response.body) $done({});
+const url = $request.url || "";
+const reqBody = typeof $request.body === "string" ? $request.body : "";
+if (!$response || !$response.body) $done({});
+
 let obj;
 try {
   obj = JSON.parse($response.body);
 } catch (e) {
   $done({});
 }
+
+function pickFunctionId() {
+  let m = url.match(/[?&]functionId=([^&]+)/i);
+  if (m) return decodeURIComponent(m[1]);
+  m = reqBody.match(/(?:^|&)functionId=([^&]+)/i);
+  if (m) return decodeURIComponent(m[1]);
+  // JSON body
+  try {
+    const j = JSON.parse(reqBody);
+    if (j && j.functionId) return String(j.functionId);
+  } catch (e) {}
+  return "";
+}
+
+const fid = pickFunctionId();
+const blob = `${url}\n${reqBody}\n${fid}`;
 
 const TITLE_RE =
   /为你推荐|潮流好货|推荐榜单|快点来看看|你可能还喜欢|猜你喜欢|AI推荐|好物推荐|热门推荐|精选推荐|看了又看|相似好物/;
@@ -102,30 +119,33 @@ function deepScrub(node, depth) {
       deepScrub(node[k], depth + 1);
       continue;
     }
-    if (typeof v === "string" && TITLE_RE.test(v) && (k === "title" || k === "floorTitle" || k === "showTitle" || k === "name")) {
-      // 标题命中：尽量清空同级列表
+    if (
+      typeof v === "string" &&
+      TITLE_RE.test(v) &&
+      (k === "title" || k === "floorTitle" || k === "showTitle" || k === "name")
+    ) {
       emptyRecommend(node);
     }
     deepScrub(v, depth + 1);
   }
 }
 
-if (/functionId=uniformRecommend\d*/i.test(url)) {
+if (/^uniformRecommend/i.test(fid) || /functionId=uniformRecommend/i.test(blob)) {
   emptyRecommend(obj);
   if (obj.data) emptyRecommend(obj.data);
   if (obj.result) emptyRecommend(obj.result);
   if (!Array.isArray(obj.wareInfoList)) obj.wareInfoList = [];
   obj.hasNextPage = false;
-} else if (url.includes("functionId=deliverLayer") || url.includes("functionId=orderTrackBusiness")) {
+} else if (fid === "deliverLayer" || fid === "orderTrackBusiness") {
   if (obj?.bannerInfo) delete obj.bannerInfo;
   if (obj?.floors?.length > 0) {
     obj.floors = obj.floors.filter((i) => !["banner", "jdDeliveryBanner"]?.includes(i?.mId) && !isRecFloor(i));
   }
   emptyRecommend(obj);
-} else if (url.includes("functionId=getTabHomeInfo")) {
+} else if (fid === "getTabHomeInfo") {
   if (obj?.result?.iconInfo) delete obj.result.iconInfo;
   if (obj?.result?.roofTop) delete obj.result.roofTop;
-} else if (url.includes("functionId=myOrderInfo")) {
+} else if (fid === "myOrderInfo") {
   if (obj?.floors?.length > 0) {
     let newFloors = [];
     for (let floor of obj.floors) {
@@ -155,7 +175,7 @@ if (/functionId=uniformRecommend\d*/i.test(url)) {
     }
     obj.floors = newFloors;
   }
-} else if (url.includes("functionId=personinfoBusiness")) {
+} else if (fid === "personinfoBusiness") {
   const scrub = (floors) => {
     if (!floors?.length) return floors;
     let out = [];
@@ -180,10 +200,10 @@ if (/functionId=uniformRecommend\d*/i.test(url)) {
   };
   if (obj?.floors) obj.floors = scrub(obj.floors);
   if (obj?.others?.floors) obj.others.floors = scrub(obj.others.floors);
-} else if (url.includes("functionId=start")) {
+} else if (fid === "start") {
   if (obj?.images?.length > 0) obj.images = [];
   if (obj?.showTimesDaily) obj.showTimesDaily = 0;
-} else if (url.includes("functionId=welcomeHome")) {
+} else if (fid === "welcomeHome") {
   if (obj?.floorList?.length > 0) {
     const delItems = [
       "bottomXview",
@@ -200,9 +220,9 @@ if (/functionId=uniformRecommend\d*/i.test(url)) {
   if (obj?.webViewFloorList?.length > 0) obj.webViewFloorList = [];
 }
 
-// 购物车 / 其它页面：按标题与 mId 递归清楼层（推荐榜单、快点来看看等）
+// 所有命中的 api.m.jd.com 响应都做标题/mId 递归清理（覆盖购物车推荐榜单等）
 deepScrub(obj, 0);
-if (/cart|Cart|shopCart|synCart/i.test(url)) {
+if (/cart|Cart|shopCart|synCart|uniformRecommend|personinfo/i.test(fid + blob)) {
   emptyRecommend(obj);
   if (obj.data) emptyRecommend(obj.data);
   if (obj.result) emptyRecommend(obj.result);

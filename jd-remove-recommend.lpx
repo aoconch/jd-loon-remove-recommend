@@ -1,5 +1,5 @@
 #!name=京东去推荐
-#!desc=移除消息/购物车/我的/订单/物流底部推荐。强制京东走 TCP（拒 QUIC），否则 MitM/脚本无效。
+#!desc=移除消息/购物车/我的/订单/物流底部推荐。匹配整条 client.action（functionId 常在 POST body）。拒 QUIC。
 #!author=aoconch
 #!homepage=https://github.com/aoconch/jd-loon-remove-recommend
 #!icon=https://raw.githubusercontent.com/fmz200/wool_scripts/main/icons/apps/JingDong.png
@@ -7,19 +7,19 @@
 #!tag=京东,推荐,去广告
 
 [Rule]
-# 京东若走 QUIC/HTTP3，且关闭了「MitM QUIC」，Rewrite/脚本完全不会生效
 AND, ((DOMAIN, api.m.jd.com), (PROTOCOL, QUIC)), REJECT
 AND, ((DOMAIN-SUFFIX, jd.com), (PROTOCOL, QUIC)), REJECT
 AND, ((DOMAIN, api.m.jd.com), (PROTOCOL, UDP)), REJECT
 
 [Rewrite]
+# URL query 形态
 ^https:\/\/api\.m\.jd\.com\/client\.action\?functionId=uniformRecommend\d* reject-dict
 ^https:\/\/storage\.jd\.com\/mpaas2-public\/product\/[^\/]+\/recommend_jdur reject-200
 
 [Script]
-# 可莉同款 + 购物车相关 functionId；脚本内还会按「推荐榜单/快点来看看/潮流好货」等标题递归清楼层
-http-response ^https:\/\/api\.m\.jd\.com\/(client\.action|api)\?functionId=(deliverLayer|getTabHomeInfo|myOrderInfo|orderTrackBusiness|personinfoBusiness|start|welcomeHome|uniformRecommend\d*|cart\w*|Cart\w*|synCart\w*|shopCart\w*|newCart\w*|getCart\w*) script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/JD_remove_ads.js, requires-body=true, timeout=20, tag=京东去推荐
-http-response ^https:\/\/api\.m\.jd\.com\/client\.action\?functionId=(deliverLayer|getTabHomeInfo|myOrderInfo|orderTrackBusiness|personinfoBusiness|start|welcomeHome) script-path=https://kelee.one/Resource/JavaScript/JD/JD_remove_ads.js, requires-body=true, timeout=60, tag=移除京东广告
+# 关键：不要只写 ?functionId=，新版京东常把 functionId 放在 body
+http-response ^https:\/\/api\.m\.jd\.com\/(client\.action|api) script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/JD_remove_ads.js, requires-body=true, timeout=20, tag=京东去推荐
+http-response ^https:\/\/api\.m\.jd\.com\/client\.action script-path=https://kelee.one/Resource/JavaScript/JD/JD_remove_ads.js, requires-body=true, timeout=60, tag=移除京东广告
 
 [Mitm]
-hostname = api.m.jd.com, storage.jd.com
+hostname = api.m.jd.com, storage.jd.com, *.jd.com, *.360buyimg.com
