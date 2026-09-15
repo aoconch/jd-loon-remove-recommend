@@ -1,41 +1,29 @@
 // 京东去广告 / 去推荐
-// 注意：新版京东常把 functionId 放在 POST body，而不是 URL query
+// functionId 常在 POST body；对所有 client.action/api 响应做清理
 
 const url = $request.url || "";
 const reqBody = typeof $request.body === "string" ? $request.body : "";
 if (!$response || !$response.body) $done({});
 
-// 通知确认脚本确实跑到（排查用，确认有效后可关掉）
-try {
-  const hint = (url.match(/functionId=([^&]+)/) || [])[1] || "body/unknown";
-  $notification.post("京东去推荐", String(hint).slice(0, 40), "脚本已执行");
-} catch (e) {}
-
-let obj;
-try {
-  obj = JSON.parse($response.body);
-} catch (e) {
-  try {
-    $notification.post("京东去推荐", "响应非JSON", String($response.body).slice(0, 60));
-  } catch (e2) {}
-  $done({});
-}
+const raw = $response.body;
+const rawStr = typeof raw === "string" ? raw : "";
 
 function pickFunctionId() {
   let m = url.match(/[?&]functionId=([^&]+)/i);
   if (m) return decodeURIComponent(m[1]);
   m = reqBody.match(/(?:^|&)functionId=([^&]+)/i);
   if (m) return decodeURIComponent(m[1]);
-  // JSON body
   try {
     const j = JSON.parse(reqBody);
     if (j && j.functionId) return String(j.functionId);
   } catch (e) {}
+  // body 里嵌套的 functionId=xxx
+  m = reqBody.match(/functionId%3D([^%&]+)/i) || reqBody.match(/"functionId"\s*:\s*"([^"]+)"/i);
+  if (m) return decodeURIComponent(m[1]);
   return "";
 }
 
 const fid = pickFunctionId();
-const blob = `${url}\n${reqBody}\n${fid}`;
 
 const TITLE_RE =
   /为你推荐|潮流好货|推荐榜单|快点来看看|你可能还喜欢|猜你喜欢|AI推荐|好物推荐|热门推荐|精选推荐|看了又看|相似好物/;
@@ -68,21 +56,67 @@ const BLOCK_MID = new Set([
   "plusFloor",
   "banner",
   "jdDeliveryBanner",
+  "cartRecommend",
+  "cartRecommendFloor",
+  "recommendRank",
+  "rankRecommend",
+  "feedRecommend",
 ]);
+
+function emptyRecommendPayload() {
+  return JSON.stringify({
+    code: "0",
+    echo: "0",
+    hasNextPage: false,
+    hasMore: false,
+    wareInfoList: [],
+    list: [],
+    data: { wareInfoList: [], list: [], hasNextPage: false, hasMore: false, feeds: [] },
+    result: { wareInfoList: [], list: [], hasNextPage: false, hasMore: false },
+  });
+}
+
+// uniformRecommend：直接空包（购物车/消息/物流底部流）
+if (/^uniformRecommend/i.test(fid) || /functionId=uniformRecommend/i.test(url + reqBody)) {
+  try {
+    $notification.post("京东去推荐", "uniformRecommend", "已清空推荐流");
+  } catch (e) {}
+  $done({ body: emptyRecommendPayload() });
+}
+
+let obj;
+try {
+  obj = JSON.parse(rawStr);
+} catch (e) {
+  // 非 JSON（可能加密）：若请求是推荐相关，仍尝试空包
+  if (/recommend|personinfo|cart|Cart|myOrder|orderTrack|deliverLayer/i.test(fid + url + reqBody)) {
+    try {
+      $notification.post("京东去推荐", fid || "encrypted", "非JSON，尝试空包");
+    } catch (e2) {}
+    $done({ body: emptyRecommendPayload() });
+  }
+  $done({});
+}
 
 function floorText(f) {
   if (!f || typeof f !== "object") return "";
-  return [f.title, f.name, f.floorName, f.floorTitle, f.showTitle, f.tabName, f.subTitle]
+  return [f.title, f.name, f.floorName, f.floorTitle, f.showTitle, f.tabName, f.subTitle, f.mainTitle, f.text]
     .filter(Boolean)
     .join("|");
 }
 
 function isRecFloor(f) {
   if (!f || typeof f !== "object") return false;
-  const id = String(f.mId || f.mid || f.type || f.floorId || f.templateId || "");
-  if (BLOCK_MID.has(id) || /recommend|jdur|guess|rank|look|fashion|feed|maylike|goodstuff/i.test(id))
+  const id = String(f.mId || f.mid || f.type || f.floorId || f.templateId || f.bId || "");
+  if (BLOCK_MID.has(id) || /recommend|jdur|guess|rank|look|fashion|feed|maylike|goodstuff|cartRec/i.test(id))
     return true;
-  return TITLE_RE.test(floorText(f));
+  if (TITLE_RE.test(floorText(f))) return true;
+  // 任意字段字符串命中标题
+  try {
+    const s = JSON.stringify(f);
+    if (TITLE_RE.test(s) && s.length < 8000) return true;
+  } catch (e) {}
+  return false;
 }
 
 function emptyRecommend(o) {
@@ -99,6 +133,8 @@ function emptyRecommend(o) {
     "skuList",
     "productList",
     "dataList",
+    "contentList",
+    "cardList",
   ].forEach((k) => {
     if (Array.isArray(o[k])) o[k] = [];
   });
@@ -112,7 +148,7 @@ function scrubFloors(floors) {
 }
 
 function deepScrub(node, depth) {
-  if (!node || typeof node !== "object" || depth > 8) return;
+  if (!node || typeof node !== "object" || depth > 10) return;
   if (Array.isArray(node)) {
     for (let i = node.length - 1; i >= 0; i--) {
       const item = node[i];
@@ -123,118 +159,77 @@ function deepScrub(node, depth) {
   }
   for (const k of Object.keys(node)) {
     const v = node[k];
-    if ((k === "floors" || k === "floorList" || k === "webViewFloorList") && Array.isArray(v)) {
+    if ((k === "floors" || k === "floorList" || k === "webViewFloorList" || k === "floorInfoList") && Array.isArray(v)) {
       node[k] = scrubFloors(v);
       deepScrub(node[k], depth + 1);
       continue;
     }
-    if (
-      typeof v === "string" &&
-      TITLE_RE.test(v) &&
-      (k === "title" || k === "floorTitle" || k === "showTitle" || k === "name")
-    ) {
+    if (typeof v === "string" && TITLE_RE.test(v)) {
       emptyRecommend(node);
+      // 标题所在对象尽量标记删除由上层 floors 过滤；这里清空列表
     }
     deepScrub(v, depth + 1);
   }
 }
 
-if (/^uniformRecommend/i.test(fid) || /functionId=uniformRecommend/i.test(blob)) {
-  emptyRecommend(obj);
-  if (obj.data) emptyRecommend(obj.data);
-  if (obj.result) emptyRecommend(obj.result);
-  if (!Array.isArray(obj.wareInfoList)) obj.wareInfoList = [];
-  obj.hasNextPage = false;
-} else if (fid === "deliverLayer" || fid === "orderTrackBusiness") {
+// 可莉同款专项
+if (fid === "deliverLayer" || fid === "orderTrackBusiness") {
   if (obj?.bannerInfo) delete obj.bannerInfo;
-  if (obj?.floors?.length > 0) {
-    obj.floors = obj.floors.filter((i) => !["banner", "jdDeliveryBanner"]?.includes(i?.mId) && !isRecFloor(i));
-  }
+  if (obj?.floors?.length) obj.floors = scrubFloors(obj.floors);
   emptyRecommend(obj);
 } else if (fid === "getTabHomeInfo") {
   if (obj?.result?.iconInfo) delete obj.result.iconInfo;
   if (obj?.result?.roofTop) delete obj.result.roofTop;
 } else if (fid === "myOrderInfo") {
-  if (obj?.floors?.length > 0) {
-    let newFloors = [];
-    for (let floor of obj.floors) {
-      if (["bannerFloor", "bpDynamicFloor", "plusFloor"]?.includes(floor?.mId) || isRecFloor(floor)) {
-        continue;
-      }
-      if (floor?.mId === "virtualServiceCenter") {
-        if (floor?.data?.virtualServiceCenters?.length > 0) {
-          let newItems = [];
-          for (let item of floor.data.virtualServiceCenters) {
-            if (item?.serviceList?.length > 0) {
-              item.serviceList = item.serviceList.filter((card) => card?.serviceTitle !== "精选特惠");
-            }
-            newItems.push(item);
-          }
-          floor.data.virtualServiceCenters = newItems;
-        }
-      }
-      if (floor?.mId === "customerServiceFloor") {
-        if (floor?.data?.moreText) {
-          delete floor.data.moreIcon;
-          delete floor.data.moreIcon_dark;
-          floor.data.moreText = " ";
-        }
-      }
-      newFloors.push(floor);
-    }
-    obj.floors = newFloors;
+  if (obj?.floors?.length) {
+    obj.floors = obj.floors.filter(
+      (floor) => !["bannerFloor", "bpDynamicFloor", "plusFloor"].includes(floor?.mId) && !isRecFloor(floor)
+    );
   }
 } else if (fid === "personinfoBusiness") {
   const scrub = (floors) => {
     if (!floors?.length) return floors;
-    let out = [];
-    for (let floor of floors) {
-      if (BLOCK_MID.has(floor?.mId) || isRecFloor(floor)) continue;
+    return floors.filter((floor) => {
+      if (BLOCK_MID.has(floor?.mId) || isRecFloor(floor)) return false;
       if (floor?.mId === "basefloorinfo" && floor.data) {
         delete floor.data.commonPopup;
         delete floor.data.commonPopup_dynamic;
         delete floor.data.floatLayer;
         if (Array.isArray(floor.data.commonTips)) floor.data.commonTips = [];
         if (Array.isArray(floor.data.commonWindows)) floor.data.commonWindows = [];
-      } else if (floor?.mId === "orderIdFloor") {
-        if (floor?.data?.commentRemindInfo?.infos?.length > 0) {
-          floor.data.commentRemindInfo.infos = [];
-        }
-      } else if (floor?.mId === "userinfo") {
-        if (floor?.data?.newPlusBlackCard) delete floor.data.newPlusBlackCard;
       }
-      out.push(floor);
-    }
-    return out;
+      return true;
+    });
   };
   if (obj?.floors) obj.floors = scrub(obj.floors);
   if (obj?.others?.floors) obj.others.floors = scrub(obj.others.floors);
 } else if (fid === "start") {
-  if (obj?.images?.length > 0) obj.images = [];
+  if (obj?.images?.length) obj.images = [];
   if (obj?.showTimesDaily) obj.showTimesDaily = 0;
 } else if (fid === "welcomeHome") {
-  if (obj?.floorList?.length > 0) {
-    const delItems = [
-      "bottomXview",
-      "float",
-      "photoCeiling",
-      "recommend",
-      "ruleFloat",
-      "searchIcon",
-      "topRotate",
-      "tabBarAtmosphere",
-    ];
+  if (obj?.floorList?.length) {
+    const delItems = ["bottomXview", "float", "photoCeiling", "recommend", "ruleFloat", "searchIcon", "topRotate", "tabBarAtmosphere"];
     obj.floorList = obj.floorList.filter((i) => !delItems.includes(i?.type) && !isRecFloor(i));
   }
-  if (obj?.webViewFloorList?.length > 0) obj.webViewFloorList = [];
-}
-
-// 所有命中的 api.m.jd.com 响应都做标题/mId 递归清理（覆盖购物车推荐榜单等）
-deepScrub(obj, 0);
-if (/cart|Cart|shopCart|synCart|uniformRecommend|personinfo/i.test(fid + blob)) {
+  if (obj?.webViewFloorList?.length) obj.webViewFloorList = [];
+} else if (/cart|Cart|shopCart|synCart/i.test(fid)) {
+  // 购物车主接口：清推荐楼层
+  deepScrub(obj, 0);
   emptyRecommend(obj);
   if (obj.data) emptyRecommend(obj.data);
   if (obj.result) emptyRecommend(obj.result);
 }
+
+// 全局：按标题/mId 递归清
+deepScrub(obj, 0);
+
+const hitTitle = TITLE_RE.test(rawStr);
+try {
+  $notification.post(
+    "京东去推荐",
+    (fid || "unknown").slice(0, 36),
+    hitTitle ? `含推荐文案 len=${rawStr.length}` : `ok len=${rawStr.length}`
+  );
+} catch (e) {}
 
 $done({ body: JSON.stringify(obj) });
