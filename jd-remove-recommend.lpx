@@ -1,5 +1,5 @@
 #!name=京东去推荐
-#!desc=移除消息/购物车/我的/订单/物流底部推荐。匹配整条 client.action（functionId 常在 POST body）。拒 QUIC。
+#!desc=移除消息/购物车/我的/订单/物流底部推荐。整条 client.action；拒 QUIC。请用 raw/commit 地址安装，勿用过期 CDN 缓存。
 #!author=aoconch
 #!homepage=https://github.com/aoconch/jd-loon-remove-recommend
 #!icon=https://raw.githubusercontent.com/fmz200/wool_scripts/main/icons/apps/JingDong.png
@@ -12,14 +12,12 @@ AND, ((DOMAIN-SUFFIX, jd.com), (PROTOCOL, QUIC)), REJECT
 AND, ((DOMAIN, api.m.jd.com), (PROTOCOL, UDP)), REJECT
 
 [Rewrite]
-# URL query 形态
 ^https:\/\/api\.m\.jd\.com\/client\.action\?functionId=uniformRecommend\d* reject-dict
+^https:\/\/api\.m\.jd\.com\/client\.action\?[^#]*functionId=uniformRecommend\d* reject-dict
 ^https:\/\/storage\.jd\.com\/mpaas2-public\/product\/[^\/]+\/recommend_jdur reject-200
 
 [Script]
-# 关键：不要只写 ?functionId=，新版京东常把 functionId 放在 body
-http-response ^https:\/\/api\.m\.jd\.com\/(client\.action|api) script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/JD_remove_ads.js, requires-body=true, timeout=20, tag=京东去推荐
-http-response ^https:\/\/api\.m\.jd\.com\/client\.action script-path=https://kelee.one/Resource/JavaScript/JD/JD_remove_ads.js, requires-body=true, timeout=60, tag=移除京东广告
+http-response ^https:\/\/api\.m\.jd\.com\/(client\.action|api) script-path=https://raw.githubusercontent.com/aoconch/jd-loon-remove-recommend/main/JD_remove_ads.js, requires-body=true, timeout=20, tag=京东去推荐
 
 [Mitm]
-hostname = api.m.jd.com, storage.jd.com, *.jd.com, *.360buyimg.com
+hostname = api.m.jd.com, storage.jd.com
