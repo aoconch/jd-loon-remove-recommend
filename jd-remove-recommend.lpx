@@ -1,5 +1,5 @@
 #!name=京东去推荐
-#!desc=移除消息/购物车/我的/订单/物流底部推荐。整条 client.action；拒 QUIC。请用 raw/commit 地址安装，勿用过期 CDN 缓存。
+#!desc=购物车推荐可能不走 uniformRecommend。MitM 扩大到更多 jd 域名；脚本匹配全部 api.m.jd.com。
 #!author=aoconch
 #!homepage=https://github.com/aoconch/jd-loon-remove-recommend
 #!icon=https://raw.githubusercontent.com/fmz200/wool_scripts/main/icons/apps/JingDong.png
@@ -13,11 +13,10 @@ AND, ((DOMAIN, api.m.jd.com), (PROTOCOL, UDP)), REJECT
 
 [Rewrite]
 ^https:\/\/api\.m\.jd\.com\/client\.action\?functionId=uniformRecommend\d* reject-dict
-^https:\/\/api\.m\.jd\.com\/client\.action\?[^#]*functionId=uniformRecommend\d* reject-dict
 ^https:\/\/storage\.jd\.com\/mpaas2-public\/product\/[^\/]+\/recommend_jdur reject-200
 
 [Script]
-http-response ^https:\/\/api\.m\.jd\.com\/(client\.action|api) script-path=https://raw.githubusercontent.com/aoconch/jd-loon-remove-recommend/main/JD_remove_ads.js, requires-body=true, timeout=20, tag=京东去推荐
+http-response ^https:\/\/api\.m\.jd\.com\/ script-path=https://raw.githubusercontent.com/aoconch/jd-loon-remove-recommend/main/JD_remove_ads.js, requires-body=true, timeout=20, tag=京东去推荐
 
 [Mitm]
-hostname = api.m.jd.com, storage.jd.com
+hostname = api.m.jd.com, storage.jd.com, waapdg.jd.com, policy.jd.com, mars.jd.com, api.jd.com, routine.m.jd.com, color.jd.com
