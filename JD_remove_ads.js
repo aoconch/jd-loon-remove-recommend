@@ -1,54 +1,131 @@
 // 京东去广告 / 去推荐
-// 对齐可莉规则 functionId，并补充 uniformRecommend（消息/购物车/物流底部推荐流）
-// 参考：kelee JD_remove_ads + fmz200 jingdong.js
+// 覆盖：消息 / 购物车 / 我的 / 订单 / 物流 / 首页
+// 对齐可莉 functionId，并递归按标题/mId 清理楼层
 
 const url = $request.url;
 if (!$response.body) $done({});
-let obj = JSON.parse($response.body);
+let obj;
+try {
+  obj = JSON.parse($response.body);
+} catch (e) {
+  $done({});
+}
 
-const TITLE_RE = /为你推荐|潮流好货|推荐榜单|快点来看看|你可能还喜欢|猜你喜欢|AI推荐/;
+const TITLE_RE =
+  /为你推荐|潮流好货|推荐榜单|快点来看看|你可能还喜欢|猜你喜欢|AI推荐|好物推荐|热门推荐|精选推荐|看了又看|相似好物/;
+
+const BLOCK_MID = new Set([
+  "recommendfloor",
+  "recommendFloor",
+  "recommend_floor",
+  "recommend",
+  "feeds",
+  "feedFloor",
+  "rankFloor",
+  "rankListFloor",
+  "ranklist",
+  "lookFloor",
+  "lookAround",
+  "buyOften",
+  "fashionGoods",
+  "goodStuffFloor",
+  "mayLikeFloor",
+  "guessYouLike",
+  "bigSaleFloor",
+  "newAttentionCard",
+  "newBigSaleFloor",
+  "newStyleAttentionCard",
+  "newsFloor",
+  "noticeFloor",
+  "bannerFloor",
+  "bpDynamicFloor",
+  "plusFloor",
+  "banner",
+  "jdDeliveryBanner",
+]);
+
+function floorText(f) {
+  if (!f || typeof f !== "object") return "";
+  return [f.title, f.name, f.floorName, f.floorTitle, f.showTitle, f.tabName, f.subTitle]
+    .filter(Boolean)
+    .join("|");
+}
 
 function isRecFloor(f) {
   if (!f || typeof f !== "object") return false;
-  const id = String(f.mId || f.mid || f.type || "");
-  if (/recommend|jdur|guess|rank|look|fashion|feed/i.test(id)) return true;
-  const t = [f.title, f.name, f.floorName, f.floorTitle, f.showTitle].filter(Boolean).join("");
-  return TITLE_RE.test(t);
+  const id = String(f.mId || f.mid || f.type || f.floorId || f.templateId || "");
+  if (BLOCK_MID.has(id) || /recommend|jdur|guess|rank|look|fashion|feed|maylike|goodstuff/i.test(id))
+    return true;
+  return TITLE_RE.test(floorText(f));
 }
 
 function emptyRecommend(o) {
   if (!o || typeof o !== "object") return;
-  ["wareInfoList", "wareList", "list", "feeds", "feedList", "rankList", "recommendList", "itemList"].forEach(
-    (k) => {
-      if (Array.isArray(o[k])) o[k] = [];
-    }
-  );
+  [
+    "wareInfoList",
+    "wareList",
+    "list",
+    "feeds",
+    "feedList",
+    "rankList",
+    "recommendList",
+    "itemList",
+    "skuList",
+    "productList",
+    "dataList",
+  ].forEach((k) => {
+    if (Array.isArray(o[k])) o[k] = [];
+  });
   if (o.hasNextPage != null) o.hasNextPage = false;
   if (o.hasMore != null) o.hasMore = false;
 }
 
+function scrubFloors(floors) {
+  if (!Array.isArray(floors)) return floors;
+  return floors.filter((f) => !isRecFloor(f));
+}
+
+function deepScrub(node, depth) {
+  if (!node || typeof node !== "object" || depth > 8) return;
+  if (Array.isArray(node)) {
+    for (let i = node.length - 1; i >= 0; i--) {
+      const item = node[i];
+      if (isRecFloor(item)) node.splice(i, 1);
+      else deepScrub(item, depth + 1);
+    }
+    return;
+  }
+  for (const k of Object.keys(node)) {
+    const v = node[k];
+    if ((k === "floors" || k === "floorList" || k === "webViewFloorList") && Array.isArray(v)) {
+      node[k] = scrubFloors(v);
+      deepScrub(node[k], depth + 1);
+      continue;
+    }
+    if (typeof v === "string" && TITLE_RE.test(v) && (k === "title" || k === "floorTitle" || k === "showTitle" || k === "name")) {
+      // 标题命中：尽量清空同级列表
+      emptyRecommend(node);
+    }
+    deepScrub(v, depth + 1);
+  }
+}
+
 if (/functionId=uniformRecommend\d*/i.test(url)) {
-  // 消息 / 购物车 / 我的 / 物流 等底部推荐商品流
   emptyRecommend(obj);
   if (obj.data) emptyRecommend(obj.data);
   if (obj.result) emptyRecommend(obj.result);
   if (!Array.isArray(obj.wareInfoList)) obj.wareInfoList = [];
   obj.hasNextPage = false;
 } else if (url.includes("functionId=deliverLayer") || url.includes("functionId=orderTrackBusiness")) {
-  // 物流页面
   if (obj?.bannerInfo) delete obj.bannerInfo;
   if (obj?.floors?.length > 0) {
-    obj.floors = obj.floors.filter(
-      (i) => !["banner", "jdDeliveryBanner"]?.includes(i?.mId) && !isRecFloor(i)
-    );
+    obj.floors = obj.floors.filter((i) => !["banner", "jdDeliveryBanner"]?.includes(i?.mId) && !isRecFloor(i));
   }
   emptyRecommend(obj);
 } else if (url.includes("functionId=getTabHomeInfo")) {
-  // 新品页面
   if (obj?.result?.iconInfo) delete obj.result.iconInfo;
   if (obj?.result?.roofTop) delete obj.result.roofTop;
 } else if (url.includes("functionId=myOrderInfo")) {
-  // 订单页面（待付款 / 待收货等）
   if (obj?.floors?.length > 0) {
     let newFloors = [];
     for (let floor of obj.floors) {
@@ -79,25 +156,11 @@ if (/functionId=uniformRecommend\d*/i.test(url)) {
     obj.floors = newFloors;
   }
 } else if (url.includes("functionId=personinfoBusiness")) {
-  // 我的页面：去掉「为你推荐 / 潮流好货」所在 recommendfloor 等
-  const block = [
-    "bigSaleFloor",
-    "buyOften",
-    "newAttentionCard",
-    "newBigSaleFloor",
-    "newStyleAttentionCard",
-    "newsFloor",
-    "noticeFloor",
-    "recommendfloor",
-    "recommendFloor",
-    "fashionGoods",
-    "goodStuffFloor",
-  ];
   const scrub = (floors) => {
     if (!floors?.length) return floors;
     let out = [];
     for (let floor of floors) {
-      if (block.includes(floor?.mId) || isRecFloor(floor)) continue;
+      if (BLOCK_MID.has(floor?.mId) || isRecFloor(floor)) continue;
       if (floor?.mId === "basefloorinfo" && floor.data) {
         delete floor.data.commonPopup;
         delete floor.data.commonPopup_dynamic;
@@ -118,11 +181,9 @@ if (/functionId=uniformRecommend\d*/i.test(url)) {
   if (obj?.floors) obj.floors = scrub(obj.floors);
   if (obj?.others?.floors) obj.others.floors = scrub(obj.others.floors);
 } else if (url.includes("functionId=start")) {
-  // 开屏广告
   if (obj?.images?.length > 0) obj.images = [];
   if (obj?.showTimesDaily) obj.showTimesDaily = 0;
 } else if (url.includes("functionId=welcomeHome")) {
-  // 首页配置
   if (obj?.floorList?.length > 0) {
     const delItems = [
       "bottomXview",
@@ -137,6 +198,14 @@ if (/functionId=uniformRecommend\d*/i.test(url)) {
     obj.floorList = obj.floorList.filter((i) => !delItems.includes(i?.type) && !isRecFloor(i));
   }
   if (obj?.webViewFloorList?.length > 0) obj.webViewFloorList = [];
+}
+
+// 购物车 / 其它页面：按标题与 mId 递归清楼层（推荐榜单、快点来看看等）
+deepScrub(obj, 0);
+if (/cart|Cart|shopCart|synCart/i.test(url)) {
+  emptyRecommend(obj);
+  if (obj.data) emptyRecommend(obj.data);
+  if (obj.result) emptyRecommend(obj.result);
 }
 
 $done({ body: JSON.stringify(obj) });

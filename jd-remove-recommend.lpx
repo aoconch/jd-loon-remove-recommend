@@ -17,8 +17,9 @@ AND, ((DOMAIN, api.m.jd.com), (PROTOCOL, UDP)), REJECT
 ^https:\/\/storage\.jd\.com\/mpaas2-public\/product\/[^\/]+\/recommend_jdur reject-200
 
 [Script]
+# 可莉同款 + 购物车相关 functionId；脚本内还会按「推荐榜单/快点来看看/潮流好货」等标题递归清楼层
+http-response ^https:\/\/api\.m\.jd\.com\/(client\.action|api)\?functionId=(deliverLayer|getTabHomeInfo|myOrderInfo|orderTrackBusiness|personinfoBusiness|start|welcomeHome|uniformRecommend\d*|cart\w*|Cart\w*|synCart\w*|shopCart\w*|newCart\w*|getCart\w*) script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/JD_remove_ads.js, requires-body=true, timeout=20, tag=京东去推荐
 http-response ^https:\/\/api\.m\.jd\.com\/client\.action\?functionId=(deliverLayer|getTabHomeInfo|myOrderInfo|orderTrackBusiness|personinfoBusiness|start|welcomeHome) script-path=https://kelee.one/Resource/JavaScript/JD/JD_remove_ads.js, requires-body=true, timeout=60, tag=移除京东广告
-http-response ^https:\/\/api\.m\.jd\.com\/client\.action\?functionId=(deliverLayer|getTabHomeInfo|myOrderInfo|orderTrackBusiness|personinfoBusiness|start|welcomeHome|uniformRecommend\d*) script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/JD_remove_ads.js, requires-body=true, timeout=20, tag=京东去推荐备份
 
 [Mitm]
 hostname = api.m.jd.com, storage.jd.com
