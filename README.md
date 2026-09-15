@@ -1,33 +1,39 @@
-# 京东去推荐（Loon）
+# 京东去推荐
 
-移除消息 / 购物车 / 我的 / 待收货·待付款 / 物流页下方商品推荐。
+对齐可莉规则（你提供的那段），并补上消息/购物车底部推荐拦截。
 
-## 安装
+## Loon 插件
 
 ```text
 https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/jd-remove-recommend.plugin
 ```
 
-备用（GitHub raw，国内可能失败）：
+## Surge 模块（与你给的写法同类）
 
 ```text
-https://raw.githubusercontent.com/aoconch/jd-loon-remove-recommend/main/jd-remove-recommend.plugin
+https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/jd-remove-recommend.sgmodule
 ```
 
-## 必做（否则会「完全没效果」）
+你给的可莉规则核心是：
 
-1. Loon → 插件 → 删除旧版「京东去推荐」→ 用上面 **jsDelivr** 地址重新添加  
-2. 确认插件已开启；配置里已开 **脚本**、**MitM**，证书已信任  
-3. MitM 主机名需包含：`api.m.jd.com`、`storage.jd.com`  
-4. **清除京东 App 缓存**（或删掉重装）→ 从多任务划掉京东 → 再打开  
-5. Loon → 工具 → 查看来往请求：打开购物车/消息时，应能看到对 `uniformRecommend` 的 `reject-dict`
+```text
+functionId=(deliverLayer|getTabHomeInfo|myOrderInfo|orderTrackBusiness|personinfoBusiness|start|welcomeHome)
+→ https://kelee.one/Resource/JavaScript/JD/JD_remove_ads.js
+```
 
-## 原理
+| functionId | 作用 |
+|---|---|
+| `personinfoBusiness` | 我的页（去掉 recommendfloor / 为你推荐） |
+| `myOrderInfo` | 待付款/待收货等订单页 |
+| `orderTrackBusiness` / `deliverLayer` | 物流页横幅等 |
+| `start` | 开屏 |
+| `welcomeHome` | 首页配置 |
 
-| 手段 | 作用 |
-|------|------|
-| `reject-dict` 拦截 `uniformRecommend*` | 各页底部推荐商品流（不依赖脚本下载） |
-| 拦截 `recommend_jdur` 模板 | 推荐 UI 模板 |
-| 脚本改 `basicConfig` / 楼层接口 | 关掉 `TNUnionFetch.recommend`，并清理我的/订单等楼层 |
+消息、购物车底部推荐多数走 `uniformRecommend`，可莉这条**不包含**，所以插件里另加了 `reject-dict`。
 
-仓库：https://github.com/aoconch/jd-loon-remove-recommend
+## 安装后
+
+1. 删掉旧版插件/模块，用上面 jsDelivr 地址重装  
+2. 开 MitM，主机名含 `api.m.jd.com`  
+3. **清京东缓存并杀进程**  
+4. 在最近请求里确认：打开「我的」有 `personinfoBusiness` 脚本命中；滑到底有 `uniformRecommend` 被 reject

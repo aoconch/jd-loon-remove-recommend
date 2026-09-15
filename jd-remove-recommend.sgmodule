@@ -1,0 +1,12 @@
+#!name=京东去推荐
+#!desc=Surge：可莉规则 + uniformRecommend 拦截
+
+[URL Rewrite]
+^https://api\.m\.jd\.com/client\.action\?functionId=uniformRecommend\d* - reject-dict
+^https://storage\.jd\.com/mpaas2-public/product/[^/]+/recommend_jdur - reject
+
+[Script]
+移除京东广告 = type=http-response, pattern=^https://api\.m\.jd\.com/client\.action\?functionId=(deliverLayer|getTabHomeInfo|myOrderInfo|orderTrackBusiness|personinfoBusiness|start|welcomeHome), script-path=https://kelee.one/Resource/JavaScript/JD/JD_remove_ads.js, requires-body=true, timeout=60
+
+[MITM]
+hostname = %APPEND% api.m.jd.com, storage.jd.com

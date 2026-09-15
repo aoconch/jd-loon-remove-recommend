@@ -1,5 +1,5 @@
 #!name=京东去推荐
-#!desc=移除消息/购物车/我的/订单/物流页底部商品推荐。不依赖插件开关；Rewrite 直接 reject，脚本用 jsDelivr。
+#!desc=对齐可莉 functionId 匹配；脚本优先可莉，另拦截 uniformRecommend（消息/购物车/物流底部）
 #!author=aoconch
 #!homepage=https://github.com/aoconch/jd-loon-remove-recommend
 #!icon=https://raw.githubusercontent.com/fmz200/wool_scripts/main/icons/apps/JingDong.png
@@ -7,19 +7,13 @@
 #!tag=京东,推荐,去广告
 
 [Rewrite]
-# —— 不依赖外部脚本，直接拦截推荐数据流 ——
-^https?:\/\/api\.m\.jd\.com\/client\.action\?functionId=uniformRecommend\d* reject-dict
-^https?:\/\/api\.m\.jd\.com\/client\.action\?[^#]*functionId=uniformRecommend\d* reject-dict
-^https?:\/\/api\.m\.jd\.com\/api\?[^#]*functionId=uniformRecommend\d* reject-dict
-
-# recommend_jdur 模板（本地已缓存时仍需配合清缓存）
-^https?:\/\/storage\.jd\.com\/mpaas2-public\/product\/[^\/]+\/recommend_jdur reject-200
-^https?:\/\/storage\.jd\.com\/mpaas2-public\/product\/[^\/]+\/recommend_ reject-200
+# 消息/购物车/我的/物流底部推荐流（可莉原规则未覆盖）
+^https:\/\/api\.m\.jd\.com\/client\.action\?functionId=uniformRecommend\d* reject-dict
+^https:\/\/storage\.jd\.com\/mpaas2-public\/product\/[^\/]+\/recommend_jdur reject-200
 
 [Script]
-# 匹配所有 client.action，在脚本内识别 functionId（含 POST body）
-http-response ^https?:\/\/api\.m\.jd\.com\/client\.action script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/jd-remove-recommend.js, requires-body=true, timeout=10, tag=京东去推荐
-http-response ^https?:\/\/api\.m\.jd\.com\/api\? script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/jd-remove-recommend.js, requires-body=true, timeout=10, tag=京东去推荐-api
+# 与你提供的可莉规则一致
+http-response ^https:\/\/api\.m\.jd\.com\/client\.action\?functionId=(deliverLayer|getTabHomeInfo|myOrderInfo|orderTrackBusiness|personinfoBusiness|start|welcomeHome) script-path=https://kelee.one/Resource/JavaScript/JD/JD_remove_ads.js, requires-body=true, timeout=60, tag=移除京东广告
 
 [Mitm]
 hostname = api.m.jd.com, storage.jd.com
