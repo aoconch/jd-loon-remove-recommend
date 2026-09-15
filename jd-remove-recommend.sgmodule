@@ -1,5 +1,9 @@
 #!name=京东去推荐
-#!desc=Surge：可莉规则 + uniformRecommend 拦截
+#!desc=Surge：拒 QUIC + 可莉规则 + uniformRecommend
+
+[Rule]
+AND, ((DOMAIN, api.m.jd.com), (PROTOCOL, QUIC)), REJECT
+AND, ((DOMAIN-SUFFIX, jd.com), (PROTOCOL, QUIC)), REJECT
 
 [URL Rewrite]
 ^https://api\.m\.jd\.com/client\.action\?functionId=uniformRecommend\d* - reject-dict
