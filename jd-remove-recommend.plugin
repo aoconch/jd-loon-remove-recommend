@@ -22,4 +22,4 @@ http-response ^https:\/\/api\.m\.jd\.com\/(client\.action|api) script-path=https
 http-response ^https:\/\/api\.m\.jd\.com\/client\.action script-path=https://kelee.one/Resource/JavaScript/JD/JD_remove_ads.js, requires-body=true, timeout=60, tag=移除京东广告
 
 [Mitm]
-hostname = api.m.jd.com, storage.jd.com, *.jd.com, *.360buyimg.com
+hostname = api.m.jd.com, storage.jd.com

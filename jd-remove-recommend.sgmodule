@@ -13,4 +13,4 @@ AND, ((DOMAIN-SUFFIX, jd.com), (PROTOCOL, QUIC)), REJECT
 京东去推荐 = type=http-response, pattern=^https://api\.m\.jd\.com/(client\.action|api), script-path=https://cdn.jsdelivr.net/gh/aoconch/jd-loon-remove-recommend@main/JD_remove_ads.js, requires-body=true, timeout=20
 
 [MITM]
-hostname = %APPEND% api.m.jd.com, storage.jd.com, *.jd.com
+hostname = %APPEND% api.m.jd.com, storage.jd.com
