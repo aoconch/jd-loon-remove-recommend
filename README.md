@@ -22,5 +22,12 @@ https://raw.githubusercontent.com/aoconch/jd-loon-remove-recommend/main/jd-remov
 
 ## 说明
 
-- 主要改写 `api.m.jd.com` 的页面楼层与 `uniformRecommend` 推荐流
-- 京东接口会随版本变动；若某页推荐仍在，用 Loon 抓包该页请求，把含推荐数据的 `functionId` 发我即可继续补规则
+抓包确认各页底部推荐共用一套能力：
+
+- 模板：`storage.jd.com/.../recommend_jdur_*`（插件直接拦截）
+- 数据：`functionId=uniformRecommend` / `uniformRecommend9|47|52|71…`（脚本清空商品列表）
+- 开关：`basicConfig` → `TNUnionFetch.recommend.enable=0`
+- 物流页请求示例：`eventId=OrderTrailFollow_Slide`，`source=4`
+- 模板内 pageSource：`FROM_SHOPPINGCAR` / `FROM_MYJD` / `FROM_MESSAGE_CENTER_*` 等
+
+安装后请：**更新插件 → 清京东缓存或重装 → 杀进程再开**。若仍有残留，把该页 MitM 下带 `functionId` 的请求发我即可继续补。

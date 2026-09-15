@@ -1,5 +1,5 @@
 #!name=京东去推荐
-#!desc=移除京东消息/购物车/我的/待收货·待付款/物流等页面下方的商品推荐区域（为你推荐、潮流好货、推荐榜单、快点来看看、你可能还喜欢等）
+#!desc=移除京东消息/购物车/我的/待收货·待付款/物流等页面下方的商品推荐（为你推荐、潮流好货、推荐榜单、快点来看看、你可能还喜欢）。基于 recommend_jdur + uniformRecommend 抓包。
 #!author=aoconch
 #!homepage=https://github.com/aoconch/jd-loon-remove-recommend
 #!icon=https://raw.githubusercontent.com/fmz200/wool_scripts/main/icons/apps/JingDong.png
@@ -10,12 +10,15 @@
 enable=switch,true,false,tag=总开关,desc=关闭后本插件全部规则不生效
 
 [Rewrite]
-# 推荐楼层模板（无模板则难以渲染推荐区）
+# recommend_jdur 系列模板：消息/购物车/我的/物流底部推荐共用
+^https?:\/\/storage\.jd\.com\/mpaas2-public\/product\/.+\/recommend_jdur reject-200,enable={enable}
 ^https?:\/\/storage\.jd\.com\/mpaas2-public\/product\/.+\/recommend_ reject-200,enable={enable}
 
 [Script]
-# uniformRecommend：各页底部推荐流；其余：楼层页结构里的推荐区块
-http-response ^https?:\/\/api\.m\.jd\.com\/(?:client\.action\?|api\?).*(?:functionId=(?:uniformRecommend|personinfoBusiness|myOrderInfo|orderTrackBusiness|deliverLayer|carts|cartChange|cartRefresh|newCartPage|synchronizedCarts|gwCart|cartB|getCarts|cart|msgCenter|messageCenter|getMsgCenter|messageBox|msgbox|messageHome|getMessageHome|welcomeHome|start)\b) script-path=https://raw.githubusercontent.com/aoconch/jd-loon-remove-recommend/main/jd-remove-recommend.js, requires-body=true, timeout=20, tag=京东去推荐, enable={enable}
+# uniformRecommend / uniformRecommend9|47|52|71…：各页推荐商品流
+# basicConfig：关闭 TNUnionFetch.recommend
+# personinfoBusiness / 订单 / 物流 / 购物车 / 消息：楼层级清理
+http-response ^https?:\/\/api\.m\.jd\.com\/(?:client\.action\?|api\?).*(?:functionId=(?:uniformRecommend\d*|basicConfig|personinfoBusiness|myOrderInfo|orderTrackBusiness|deliverLayer|carts|cartChange|cartRefresh|newCartPage|synchronizedCarts|gwCart|cartB|getCarts|cart|msgCenter|messageCenter|getMsgCenter|messageBox|msgbox|messageHome|getMessageHome|welcomeHome|start)\b) script-path=https://raw.githubusercontent.com/aoconch/jd-loon-remove-recommend/main/jd-remove-recommend.js, requires-body=true, timeout=20, tag=京东去推荐, enable={enable}
 
 [MITM]
 hostname = api.m.jd.com, storage.jd.com
